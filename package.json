@@ -1,0 +1,25 @@
+{
+  "name": "pragma",
+  "version": "1.0.0",
+  "description": "Parking control system",
+  "keywords": [
+    "parking",
+    "access",
+    "control"
+  ],
+  "homepage": "https://github.com/bzorzetto/Pragma#readme",
+  "bugs": {
+    "url": "https://github.com/bzorzetto/Pragma/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bzorzetto/Pragma.git"
+  },
+  "license": "ISC",
+  "author": "Bruno Zorzetto",
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
