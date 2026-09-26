@@ -360,6 +360,44 @@ class DatabaseManager {
     }
 
 
+    getGateIdsByUser(userId) {
+
+        return this.db.prepare(`
+            SELECT gate_id
+            FROM user_gates
+            WHERE user_id = ?
+            ORDER BY gate_id
+        `).all(userId).map(row => row.gate_id);
+    }
+
+
+    setUserGates(userId, gateIds) {
+
+        const replace = this.db.transaction(() => {
+            this.db.prepare('DELETE FROM user_gates WHERE user_id = ?').run(userId);
+            const insert = this.db.prepare('INSERT INTO user_gates (user_id, gate_id) VALUES (?, ?)');
+            for (const gateId of gateIds) insert.run(userId, gateId);
+        });
+
+        return replace();
+    }
+
+
+    deleteUser(id) {
+
+        const removeUser = this.db.transaction(() => {
+            // Keep access logs for auditing; the schema sets their user/token/gate
+            // references to NULL when the related records are removed.
+            this.db.prepare(`DELETE FROM access_rules WHERE user_id = ?`).run(id);
+            this.db.prepare(`DELETE FROM vehicles WHERE user_id = ?`).run(id);
+            this.db.prepare(`DELETE FROM access_tokens WHERE user_id = ?`).run(id);
+            return this.db.prepare(`DELETE FROM users WHERE id = ?`).run(id);
+        });
+
+        return removeUser();
+    }
+
+
     // =========================================================
     // VEHICLES
     // =========================================================
@@ -627,6 +665,10 @@ class DatabaseManager {
     createGate({
         name,
         direction,
+        relayType = 'NONE',
+        relayHost = null,
+        relayChannel = 0,
+        pulseMs = 1000,
         notes = null
     }) {
 
@@ -634,16 +676,28 @@ class DatabaseManager {
             INSERT INTO gates (
                 name,
                 direction,
+                relay_type,
+                relay_host,
+                relay_channel,
+                pulse_ms,
                 notes
             )
             VALUES (
                 @name,
                 @direction,
+                @relayType,
+                @relayHost,
+                @relayChannel,
+                @pulseMs,
                 @notes
             )
         `).run({
             name,
             direction,
+            relayType,
+            relayHost,
+            relayChannel,
+            pulseMs,
             notes
         });
 
@@ -668,6 +722,97 @@ class DatabaseManager {
             FROM gates
             WHERE id = ?
         `).get(id);
+    }
+
+
+    createReader({ name, credentialHash }) {
+
+        const result = this.db.prepare(`
+            INSERT INTO readers (name, credential_hash)
+            VALUES (@name, @credentialHash)
+        `).run({ name, credentialHash });
+
+        return result.lastInsertRowid;
+    }
+
+
+    getReaderById(id) {
+
+        return this.db.prepare('SELECT id, name, enabled, created_at, updated_at FROM readers WHERE id = ?').get(id);
+    }
+
+
+    getReaderAuthById(id) {
+
+        return this.db.prepare('SELECT id, credential_hash, enabled FROM readers WHERE id = ?').get(id);
+    }
+
+
+    getReaderByCredentialHash(credentialHash) {
+
+        return this.db.prepare('SELECT * FROM readers WHERE credential_hash = ?').get(credentialHash);
+    }
+
+
+    getReaders() {
+
+        return this.db.prepare('SELECT id, name, enabled, created_at, updated_at FROM readers ORDER BY name').all();
+    }
+
+
+    disableReader(id) {
+
+        return this.db.prepare('UPDATE readers SET enabled = 0 WHERE id = ?').run(id);
+    }
+
+
+    updateReader(id, { name, enabled = 1 }) {
+
+        return this.db.prepare('UPDATE readers SET name = @name, enabled = @enabled WHERE id = @id').run({ id, name, enabled });
+    }
+
+
+    getGateIdsByReader(readerId) {
+
+        return this.db.prepare('SELECT gate_id FROM reader_gates WHERE reader_id = ? ORDER BY gate_id').all(readerId).map(row => row.gate_id);
+    }
+
+
+    setReaderGates(readerId, gateIds) {
+
+        const replace = this.db.transaction(() => {
+            this.db.prepare('DELETE FROM reader_gates WHERE reader_id = ?').run(readerId);
+            const insert = this.db.prepare('INSERT INTO reader_gates (reader_id, gate_id) VALUES (?, ?)');
+            for (const gateId of gateIds) insert.run(readerId, gateId);
+        });
+
+        return replace();
+    }
+
+
+    updateGate(id, {
+        name,
+        direction,
+        relayType = 'NONE',
+        relayHost = null,
+        relayChannel = 0,
+        pulseMs = 1000,
+        notes = null,
+        enabled = 1
+    }) {
+
+        return this.db.prepare(`
+            UPDATE gates
+            SET name = @name,
+                direction = @direction,
+                relay_type = @relayType,
+                relay_host = @relayHost,
+                relay_channel = @relayChannel,
+                pulse_ms = @pulseMs,
+                notes = @notes,
+                enabled = @enabled
+            WHERE id = @id
+        `).run({ id, name, direction, relayType, relayHost, relayChannel, pulseMs, notes, enabled });
     }
 
 
@@ -720,6 +865,7 @@ class DatabaseManager {
         userId = null,
         vehicleId = null,
         gateId = null,
+        readerId = null,
         result,
         reason = null,
         direction = null
@@ -731,6 +877,7 @@ class DatabaseManager {
                 user_id,
                 vehicle_id,
                 gate_id,
+                reader_id,
                 result,
                 reason,
                 direction
@@ -740,6 +887,7 @@ class DatabaseManager {
                 @userId,
                 @vehicleId,
                 @gateId,
+                @readerId,
                 @result,
                 @reason,
                 @direction
@@ -749,6 +897,7 @@ class DatabaseManager {
             userId,
             vehicleId,
             gateId,
+            readerId,
             result,
             reason,
             direction
@@ -769,7 +918,8 @@ class DatabaseManager {
                 u.first_name,
                 u.last_name,
                 v.plate,
-                g.name AS gate_name
+                g.name AS gate_name,
+                r.name AS reader_name
             FROM access_logs l
             LEFT JOIN users u
                 ON u.id = l.user_id
@@ -777,6 +927,8 @@ class DatabaseManager {
                 ON v.id = l.vehicle_id
             LEFT JOIN gates g
                 ON g.id = l.gate_id
+            LEFT JOIN readers r
+                ON r.id = l.reader_id
             ORDER BY l.timestamp DESC
             LIMIT ?
             OFFSET ?
