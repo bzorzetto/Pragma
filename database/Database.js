@@ -669,6 +669,8 @@ class DatabaseManager {
         relayHost = null,
         relayChannel = 0,
         pulseMs = 1000,
+        haService = null,
+        haEntityId = null,
         notes = null
     }) {
 
@@ -680,6 +682,8 @@ class DatabaseManager {
                 relay_host,
                 relay_channel,
                 pulse_ms,
+                ha_service,
+                ha_entity_id,
                 notes
             )
             VALUES (
@@ -689,6 +693,8 @@ class DatabaseManager {
                 @relayHost,
                 @relayChannel,
                 @pulseMs,
+                @haService,
+                @haEntityId,
                 @notes
             )
         `).run({
@@ -698,6 +704,8 @@ class DatabaseManager {
             relayHost,
             relayChannel,
             pulseMs,
+            haService,
+            haEntityId,
             notes
         });
 
@@ -797,6 +805,8 @@ class DatabaseManager {
         relayHost = null,
         relayChannel = 0,
         pulseMs = 1000,
+        haService = null,
+        haEntityId = null,
         notes = null,
         enabled = 1
     }) {
@@ -809,10 +819,12 @@ class DatabaseManager {
                 relay_host = @relayHost,
                 relay_channel = @relayChannel,
                 pulse_ms = @pulseMs,
+                ha_service = @haService,
+                ha_entity_id = @haEntityId,
                 notes = @notes,
                 enabled = @enabled
             WHERE id = @id
-        `).run({ id, name, direction, relayType, relayHost, relayChannel, pulseMs, notes, enabled });
+        `).run({ id, name, direction, relayType, relayHost, relayChannel, pulseMs, haService, haEntityId, notes, enabled });
     }
 
 

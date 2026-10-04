@@ -24,6 +24,21 @@ if (!adminUsername || !adminPassword || adminPassword.length < 12) {
     throw new Error('Configura PRAGMA_USERNAME e PRAGMA_PASSWORD (almeno 12 caratteri) nel file .env.');
 }
 const sessionCookie = 'pragma_session';
+const homeAssistantBaseUrlValue = process.env.HOME_ASSISTANT_URL;
+const homeAssistantToken = process.env.HOME_ASSISTANT_TOKEN;
+let homeAssistantBaseUrl = null;
+if (Boolean(homeAssistantBaseUrlValue) !== Boolean(homeAssistantToken)) {
+    throw new Error('Per Home Assistant imposta sia HOME_ASSISTANT_URL sia HOME_ASSISTANT_TOKEN nel file .env.');
+}
+if (homeAssistantBaseUrlValue) {
+    try {
+        const parsed = new URL(homeAssistantBaseUrlValue);
+        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error();
+        homeAssistantBaseUrl = parsed.toString().replace(/\/+$/, '');
+    } catch {
+        throw new Error('HOME_ASSISTANT_URL deve essere un URL HTTP o HTTPS valido, senza credenziali o parametri.');
+    }
+}
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -151,15 +166,16 @@ function parseGate(body) {
     const name = requiredText(body.name, 'Nome varco', 200);
     const direction = requiredText(body.direction, 'Direzione', 5);
     if (!['ENTRY', 'EXIT', 'BOTH'].includes(direction)) throw Object.assign(new Error('Direzione del varco non valida.'), { status: 400 });
-    const relayType = body.relayType === 'SHELLY_RPC' ? 'SHELLY_RPC' : body.relayType === 'NONE' || body.relayType == null ? 'NONE' : null;
-    if (!relayType) throw Object.assign(new Error('Tipo di relay non valido.'), { status: 400 });
+    const outputType = body.relayType == null || body.relayType === 'NONE' ? 'NONE' : ['SHELLY_RPC', 'HOME_ASSISTANT'].includes(body.relayType) ? body.relayType : null;
+    if (!outputType) throw Object.assign(new Error('Tipo di dispositivo di uscita non valido.'), { status: 400 });
+    const relayType = outputType === 'SHELLY_RPC' ? 'SHELLY_RPC' : 'NONE';
     const relayChannel = Number(body.relayChannel ?? 0);
     const pulseMs = Number(body.pulseMs ?? 1000);
     if (!Number.isInteger(relayChannel) || relayChannel < 0 || relayChannel > 31) throw Object.assign(new Error('Uscita relay non valida.'), { status: 400 });
     if (!Number.isInteger(pulseMs) || pulseMs < 100 || pulseMs > 60000) throw Object.assign(new Error('La durata impulso deve essere tra 100 e 60000 ms.'), { status: 400 });
 
     let relayHost = optionalText(body.relayHost, 253);
-    if (relayType === 'SHELLY_RPC') {
+    if (outputType === 'SHELLY_RPC') {
         if (!relayHost || /[\s/@?#]/.test(relayHost)) throw Object.assign(new Error('Inserisci l’indirizzo IP o il nome host del relay, senza protocollo o percorso.'), { status: 400 });
         try {
             const parsed = new URL(`http://${relayHost}`);
@@ -171,8 +187,20 @@ function parseGate(body) {
     } else {
         relayHost = null;
     }
+    let haService = null;
+    let haEntityId = null;
+    if (outputType === 'HOME_ASSISTANT') {
+        if (!homeAssistantBaseUrl || !homeAssistantToken) throw Object.assign(new Error('Configura HOME_ASSISTANT_URL e HOME_ASSISTANT_TOKEN nel file .env e riavvia Pragma.'), { status: 400 });
+        haService = requiredText(body.haService, 'Servizio Home Assistant', 40);
+        if (!['switch.turn_on', 'automation.turn_on', 'automation.trigger'].includes(haService)) throw Object.assign(new Error('Seleziona un servizio Home Assistant supportato.'), { status: 400 });
+        haEntityId = requiredText(body.haEntityId, 'Entità Home Assistant', 200).toLowerCase();
+        const expectedDomain = haService.split('.')[0];
+        if (!new RegExp(`^${expectedDomain}\\.[a-z0-9_]+$`).test(haEntityId)) {
+            throw Object.assign(new Error(`Inserisci un'entità valida del tipo ${expectedDomain}.nome_entità.`), { status: 400 });
+        }
+    }
     return {
-        name, direction, relayType, relayHost, relayChannel, pulseMs,
+        name, direction, relayType, relayHost, relayChannel, pulseMs, haService, haEntityId,
         notes: optionalText(body.notes),
         enabled: body.enabled === false || body.enabled === 0 ? 0 : 1
     };
@@ -374,6 +402,20 @@ function userHasActiveRule(userId, now = new Date()) {
 }
 
 async function activateGateRelay(gate) {
+    if (gate.ha_service && gate.ha_entity_id) {
+        if (!homeAssistantBaseUrl || !homeAssistantToken) return false;
+        const [domain, service] = gate.ha_service.split('.');
+        const response = await fetch(`${homeAssistantBaseUrl}/api/services/${domain}/${service}`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${homeAssistantToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ entity_id: gate.ha_entity_id }),
+            signal: AbortSignal.timeout(8000)
+        });
+        return response.ok;
+    }
     if (gate.relay_type !== 'SHELLY_RPC' || !gate.relay_host) return false;
     const response = await fetch(`http://${gate.relay_host}/rpc/Switch.Set`, {
         method: 'POST',

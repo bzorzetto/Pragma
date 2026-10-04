@@ -19,6 +19,8 @@ Durante lo sviluppo puoi usare `npm run dev` per riavviare automaticamente il se
 
 Per attivare l'API HTTPS dei lettori, copia `.env.example` in `.env` e configura certificato e chiave TLS. Il certificato deve essere attendibile dal lettore NFC e valido per l'hostname usato dal lettore. Mantieni la chiave privata fuori dal repository e leggibile solo dall'utente di sistema che esegue Pragma. Senza entrambi i file TLS l'API lettori non viene avviata; la pagina amministrativa locale continua a funzionare.
 
+Per usare Home Assistant, configura `HOME_ASSISTANT_URL` (ad esempio `http://homeassistant.local:8123`) e `HOME_ASSISTANT_TOKEN` nel `.env`, quindi riavvia Pragma. Crea un token di accesso a lunga durata dal profilo Home Assistant e mantienilo privato. Nella configurazione del varco seleziona Home Assistant, scegli `switch.turn_on`, `automation.turn_on` o `automation.trigger` e inserisci l'ID dell'entità corrispondente. `automation.turn_on` abilita l'automazione; `automation.trigger` ne esegue subito le azioni. Pragma invia al server Home Assistant una richiesta REST autenticata; il token resta sul server e non viene salvato nel database. Per l'API REST e le chiamate ai servizi, consulta la [documentazione ufficiale Home Assistant](https://developers.home-assistant.io/docs/api/rest/).
+
 ## Funzioni incluse
 
 - consultazione, creazione e modifica delle anagrafiche;
@@ -26,7 +28,7 @@ Per attivare l'API HTTPS dei lettori, copia `.env.example` in `.env` e configura
 - eliminazione definitiva dell'utente e dei relativi badge, veicoli, regole e fasce (i log restano, scollegati dall'utente);
 - associazione manuale e disattivazione dei token NFC;
 - creazione e disattivazione delle regole di accesso e gestione delle fasce settimanali;
-- creazione e modifica dei varchi, direzione, abilitazione e configurazione opzionale di un relay Shelly RPC;
+- creazione e modifica dei varchi, direzione, abilitazione e configurazione dell'uscita Shelly RPC o Home Assistant;
 - associazione di uno o più varchi autorizzati a ciascun utente;
 - registrazione dei lettori, assegnazione dei varchi e credenziale bearer casuale mostrata una sola volta.
 

@@ -96,7 +96,7 @@ async function loadGates() {
   try {
     gates = await api('/api/gates');
     document.querySelector('#gate-count').textContent = gates.length;
-    container.innerHTML = gates.length ? gates.map(gate => `<article class="gate-card"><span class="gate-symbol">⇄</span><div class="gate-info"><div class="gate-name">${escapeHtml(gate.name)}</div><div class="gate-direction">${escapeHtml(({ ENTRY: 'Ingresso', EXIT: 'Uscita', BOTH: 'Entrata e uscita' })[gate.direction] || gate.direction)} · ${gate.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">${gate.relay_type === 'SHELLY_RPC' ? `Shelly · ${escapeHtml(gate.relay_host || 'host mancante')} · uscita ${gate.relay_channel} · impulso ${gate.pulse_ms} ms` : 'Nessun relay associato'}</div></div><button class="text-button" data-gate-edit="${gate.id}">Modifica</button></article>`).join('') : '<span class="muted">Nessun varco configurato.</span>';
+    container.innerHTML = gates.length ? gates.map(gate => `<article class="gate-card"><span class="gate-symbol">⇄</span><div class="gate-info"><div class="gate-name">${escapeHtml(gate.name)}</div><div class="gate-direction">${escapeHtml(({ ENTRY: 'Ingresso', EXIT: 'Uscita', BOTH: 'Entrata e uscita' })[gate.direction] || gate.direction)} · ${gate.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">${gate.ha_service ? `Home Assistant · ${escapeHtml(gate.ha_service)} · ${escapeHtml(gate.ha_entity_id || '')}` : gate.relay_type === 'SHELLY_RPC' ? `Shelly · ${escapeHtml(gate.relay_host || 'host mancante')} · uscita ${gate.relay_channel} · impulso ${gate.pulse_ms} ms` : 'Nessun dispositivo di uscita'}</div></div><button class="text-button" data-gate-edit="${gate.id}">Modifica</button></article>`).join('') : '<span class="muted">Nessun varco configurato.</span>';
     container.dataset.gates = JSON.stringify(gates);
   } catch { document.querySelector('#gate-count').textContent = '—'; container.innerHTML = '<span class="muted">Impossibile caricare i varchi.</span>'; }
 }
@@ -122,9 +122,14 @@ const gateDialog = document.querySelector('#gate-dialog');
 const gateForm = document.querySelector('#gate-form');
 
 function updateRelayFields() {
-  const usesShelly = gateForm.elements.relayType.value === 'SHELLY_RPC';
+  const outputType = gateForm.elements.relayType.value;
+  const usesShelly = outputType === 'SHELLY_RPC';
+  const usesHomeAssistant = outputType === 'HOME_ASSISTANT';
   gateForm.querySelectorAll('.relay-field').forEach(field => { field.hidden = !usesShelly; });
+  gateForm.querySelectorAll('.ha-field').forEach(field => { field.hidden = !usesHomeAssistant; });
   gateForm.elements.relayHost.required = usesShelly;
+  gateForm.elements.haService.required = usesHomeAssistant;
+  gateForm.elements.haEntityId.required = usesHomeAssistant;
 }
 
 function openGateForm(gate = null) {
@@ -132,10 +137,12 @@ function openGateForm(gate = null) {
   gateForm.elements.id.value = gate?.id || '';
   gateForm.elements.name.value = gate?.name || '';
   gateForm.elements.direction.value = gate?.direction || 'ENTRY';
-  gateForm.elements.relayType.value = gate?.relay_type || 'NONE';
+  gateForm.elements.relayType.value = gate?.ha_service ? 'HOME_ASSISTANT' : gate?.relay_type || 'NONE';
   gateForm.elements.relayHost.value = gate?.relay_host || '';
   gateForm.elements.relayChannel.value = gate?.relay_channel ?? 0;
   gateForm.elements.pulseMs.value = gate?.pulse_ms ?? 1000;
+  gateForm.elements.haService.value = gate?.ha_service || 'switch.turn_on';
+  gateForm.elements.haEntityId.value = gate?.ha_entity_id || '';
   gateForm.elements.notes.value = gate?.notes || '';
   gateForm.elements.enabled.checked = gate ? Boolean(gate.enabled) : true;
   document.querySelector('#gate-dialog-title').textContent = gate ? 'Modifica varco' : 'Nuovo varco';
