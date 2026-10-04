@@ -19,6 +19,7 @@
       <a class="nav-item active" href="#utenti"><span class="nav-icon">♙</span> Utenti e badge</a>
       <a class="nav-item" href="#varchi"><span class="nav-icon">⇄</span> Varchi</a>
       <a class="nav-item" href="#lettori"><span class="nav-icon">▣</span> Lettori NFC</a>
+      <a class="nav-item" href="#registro"><span class="nav-icon">≡</span> Registro accessi</a>
       <div class="sidebar-note"><span class="note-icon">⌂</span><div><strong>Il tuo spazio</strong><p>Gestisci le persone abilitate e i loro token.</p></div></div>
       <div class="sidebar-footer">PRAGMA <span>·</span> CONTROLLO ACCESSI</div>
     </aside>
@@ -28,6 +29,7 @@
       <section class="panel" id="utenti"><div class="panel-heading"><div><h2>Elenco utenti</h2><p>Utenti, stato e badge associati</p></div><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Cerca un utente…" aria-label="Cerca un utente"></label></div><div id="notice" class="notice" role="status" hidden></div><div class="table-wrap"><table><thead><tr><th>UTENTE</th><th>CONTATTO</th><th>BADGE NFC</th><th>STATO</th><th></th></tr></thead><tbody id="users-body"><tr><td colspan="5" class="empty">Caricamento…</td></tr></tbody></table></div><div id="empty-state" class="empty-state" hidden><div class="empty-illustration">♙</div><strong>Nessun utente trovato</strong><p>Aggiungi un utente per iniziare a configurare gli accessi.</p><button class="button secondary" id="empty-add">＋ Aggiungi utente</button></div></section>
       <section class="panel gates-panel" id="varchi"><div class="panel-heading"><div><h2>Varchi</h2><p>Configura i punti di accesso e il relay associato</p></div><button id="new-gate" class="button secondary">＋ Nuovo varco</button></div><div id="gates-list" class="gates-list"><span class="muted">Caricamento…</span></div></section>
       <section class="panel gates-panel" id="lettori"><div class="panel-heading"><div><h2>Lettori NFC</h2><p>Registra i lettori e assegna i varchi che possono richiedere</p></div><button id="new-reader" class="button secondary">＋ Registra lettore</button></div><div id="readers-list" class="gates-list"><span class="muted">Caricamento…</span></div></section>
+      <section class="panel access-log-panel" id="registro"><div class="panel-heading"><div><h2>Registro accessi</h2><p>Eventi più recenti, con esito e dettagli della richiesta</p></div><button id="refresh-logs" class="button secondary">Aggiorna</button></div><div id="logs-status" class="logs-status" role="status">Caricamento…</div><div class="table-wrap"><table class="access-log-table"><thead><tr><th>DATA E ORA</th><th>ESITO</th><th>UTENTE / BADGE</th><th>VARCO</th><th>DIREZIONE</th><th>LETTORE</th><th>DETTAGLIO</th></tr></thead><tbody id="access-logs-body"></tbody></table></div><div class="logs-footer"><button id="load-more-logs" class="button secondary" hidden>Carica eventi precedenti</button></div></section>
       <p class="page-footnote"><span>ⓘ</span> Le fasce orarie definiscono in quali giorni e orari una regola consente l’accesso.</p>
     </section>
   </main>

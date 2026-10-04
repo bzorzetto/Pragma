@@ -8,6 +8,9 @@ let activeAccessUserId = null;
 let users = [];
 let gates = [];
 let readers = [];
+const accessLogPageSize = 50;
+let accessLogOffset = 0;
+let accessLogsExhausted = false;
 
 const navigationLinks = [...document.querySelectorAll('.sidebar .nav-item[href^="#"]')];
 
@@ -56,6 +59,63 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
 
+const accessLogReasons = {
+  OPENED: 'Comando di apertura inviato',
+  GATE_NOT_FOUND: 'Varco inesistente',
+  READER_GATE_MISMATCH: 'Varco non assegnato al lettore',
+  GATE_DISABLED: 'Varco disabilitato',
+  INVALID_DIRECTION: 'Direzione non valida',
+  UNKNOWN_TAG: 'Badge sconosciuto',
+  TOKEN_DISABLED: 'Badge disabilitato',
+  USER_DISABLED: 'Utente disabilitato',
+  USER_NOT_AUTHORIZED_FOR_GATE: 'Utente non autorizzato al varco',
+  NO_ACTIVE_ACCESS_RULE: 'Nessuna regola di accesso valida',
+  RELAY_ERROR: 'Errore nell’attivazione del dispositivo'
+};
+
+function renderAccessLogs(logs, append = false) {
+  const body = document.querySelector('#access-logs-body');
+  if (!logs.length && !append && accessLogOffset === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nessun accesso registrato.</td></tr>';
+    return;
+  }
+  const rows = logs.map(log => {
+    const timestamp = new Date(`${String(log.timestamp).replace(' ', 'T')}Z`);
+    const formattedTimestamp = Number.isNaN(timestamp.getTime()) ? log.timestamp : timestamp.toLocaleString('it-IT');
+    const userName = [log.first_name, log.last_name].filter(Boolean).join(' ') || 'Utente non identificato';
+    const identity = log.token_value ? `${userName} · ${log.token_value}` : userName;
+    const direction = ({ ENTRY: 'Ingresso', EXIT: 'Uscita' })[log.direction] || '—';
+    const result = log.result === 'GRANTED' ? 'Consentito' : 'Negato';
+    const reason = accessLogReasons[log.reason] || log.reason || '—';
+    const gateName = log.gate_name ? `${log.gate_name} · #${log.gate_id}` : '—';
+    return `<tr><td>${escapeHtml(formattedTimestamp)}</td><td><span class="status ${log.result === 'GRANTED' ? 'enabled' : 'disabled'}">${result}</span></td><td>${escapeHtml(identity)}</td><td>${escapeHtml(gateName)}</td><td>${direction}</td><td>${escapeHtml(log.reader_name || '—')}</td><td>${escapeHtml(reason)}</td></tr>`;
+  }).join('');
+  if (append) body.insertAdjacentHTML('beforeend', rows);
+  else body.innerHTML = rows;
+}
+
+async function loadAccessLogs({ reset = false } = {}) {
+  const status = document.querySelector('#logs-status');
+  const loadMore = document.querySelector('#load-more-logs');
+  if (reset) { accessLogOffset = 0; accessLogsExhausted = false; }
+  status.textContent = 'Caricamento…';
+  loadMore.disabled = true;
+  try {
+    const logs = await api(`/api/access-logs?limit=${accessLogPageSize}&offset=${accessLogOffset}`);
+    renderAccessLogs(logs, accessLogOffset > 0);
+    accessLogOffset += logs.length;
+    accessLogsExhausted = logs.length < accessLogPageSize;
+    status.textContent = accessLogOffset ? `${accessLogOffset} eventi visualizzati` : 'Nessun evento da visualizzare';
+    loadMore.hidden = accessLogsExhausted;
+  } catch (error) {
+    status.textContent = `Impossibile caricare il registro: ${error.message}`;
+    if (accessLogOffset === 0) document.querySelector('#access-logs-body').innerHTML = '';
+    loadMore.hidden = true;
+  } finally {
+    loadMore.disabled = false;
+  }
+}
+
 function showNotice(message, type = 'success') {
   notice.textContent = message;
   notice.className = `notice ${type}`;
@@ -96,7 +156,7 @@ async function loadGates() {
   try {
     gates = await api('/api/gates');
     document.querySelector('#gate-count').textContent = gates.length;
-    container.innerHTML = gates.length ? gates.map(gate => `<article class="gate-card"><span class="gate-symbol">⇄</span><div class="gate-info"><div class="gate-name">${escapeHtml(gate.name)}</div><div class="gate-direction">${escapeHtml(({ ENTRY: 'Ingresso', EXIT: 'Uscita', BOTH: 'Entrata e uscita' })[gate.direction] || gate.direction)} · ${gate.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">${gate.ha_service ? `Home Assistant · ${escapeHtml(gate.ha_service)} · ${escapeHtml(gate.ha_entity_id || '')}` : gate.relay_type === 'SHELLY_RPC' ? `Shelly · ${escapeHtml(gate.relay_host || 'host mancante')} · uscita ${gate.relay_channel} · impulso ${gate.pulse_ms} ms` : 'Nessun dispositivo di uscita'}</div></div><button class="text-button" data-gate-edit="${gate.id}">Modifica</button></article>`).join('') : '<span class="muted">Nessun varco configurato.</span>';
+    container.innerHTML = gates.length ? gates.map(gate => `<article class="gate-card"><span class="gate-symbol">⇄</span><div class="gate-info"><div class="gate-name">${escapeHtml(gate.name)} · #${gate.id}</div><div class="gate-direction">${escapeHtml(({ ENTRY: 'Ingresso', EXIT: 'Uscita', BOTH: 'Entrata e uscita' })[gate.direction] || gate.direction)} · ${gate.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">${gate.ha_service ? `Home Assistant · ${escapeHtml(gate.ha_service)} · ${escapeHtml(gate.ha_entity_id || '')}` : gate.relay_type === 'SHELLY_RPC' ? `Shelly · ${escapeHtml(gate.relay_host || 'host mancante')} · uscita ${gate.relay_channel} · impulso ${gate.pulse_ms} ms` : 'Nessun dispositivo di uscita'}</div></div><button class="text-button" data-gate-edit="${gate.id}">Modifica</button><button class="text-button danger" data-gate-delete="${gate.id}">Elimina</button></article>`).join('') : '<span class="muted">Nessun varco configurato.</span>';
     container.dataset.gates = JSON.stringify(gates);
   } catch { document.querySelector('#gate-count').textContent = '—'; container.innerHTML = '<span class="muted">Impossibile caricare i varchi.</span>'; }
 }
@@ -114,7 +174,7 @@ function renderReaders() {
   const container = document.querySelector('#readers-list');
   container.innerHTML = readers.length ? readers.map(reader => {
     const assigned = reader.gateIds.map(id => gates.find(gate => gate.id === id)?.name || `Varco ${id}`).join(', ');
-    return `<article class="gate-card reader-card"><span class="gate-symbol">▣</span><div class="gate-info"><div class="gate-name">${escapeHtml(reader.name)} · #${reader.id}</div><div class="gate-direction">${reader.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">Varchi: ${escapeHtml(assigned || 'nessuno')}</div></div><button class="text-button" data-reader-edit="${reader.id}">Modifica</button>${reader.enabled ? `<button class="text-button danger" data-reader-disable="${reader.id}">Disattiva</button>` : ''}</article>`;
+    return `<article class="gate-card reader-card"><span class="gate-symbol">▣</span><div class="gate-info"><div class="gate-name">${escapeHtml(reader.name)} · #${reader.id}</div><div class="gate-direction">${reader.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">Varchi: ${escapeHtml(assigned || 'nessuno')}</div></div><button class="text-button" data-reader-edit="${reader.id}">Modifica</button>${reader.enabled ? `<button class="text-button danger" data-reader-disable="${reader.id}">Disattiva</button>` : ''}<button class="text-button danger" data-reader-delete="${reader.id}">Elimina</button></article>`;
   }).join('') : '<span class="muted">Nessun lettore registrato.</span>';
 }
 
@@ -156,9 +216,18 @@ document.querySelector('#cancel-gate').addEventListener('click', () => gateDialo
 gateForm.elements.relayType.addEventListener('change', updateRelayFields);
 document.querySelector('#gates-list').addEventListener('click', event => {
   const button = event.target.closest('[data-gate-edit]');
-  if (!button) return;
-  const gates = JSON.parse(event.currentTarget.dataset.gates || '[]');
-  openGateForm(gates.find(gate => gate.id === Number(button.dataset.gateEdit)));
+  if (button) {
+    const gates = JSON.parse(event.currentTarget.dataset.gates || '[]');
+    openGateForm(gates.find(gate => gate.id === Number(button.dataset.gateEdit)));
+    return;
+  }
+  const remove = event.target.closest('[data-gate-delete]');
+  if (!remove) return;
+  const gate = gates.find(item => item.id === Number(remove.dataset.gateDelete));
+  if (!gate || !window.confirm(`Eliminare definitivamente il varco “${gate.name} · #${gate.id}”? Saranno rimosse anche le assegnazioni a utenti e lettori. I log di accesso resteranno, senza il collegamento al varco. L’operazione non si può annullare.`)) return;
+  api(`/api/gates/${gate.id}`, { method: 'DELETE' }).then(async () => {
+    await loadGates(); renderReaders(); showNotice('Varco eliminato.');
+  }).catch(error => showNotice(error.message, 'error'));
 });
 gateForm.addEventListener('submit', async event => {
   event.preventDefault();
@@ -216,6 +285,7 @@ document.querySelector('#copy-reader-secret').addEventListener('click', async ()
 document.querySelector('#readers-list').addEventListener('click', async event => {
   const edit = event.target.closest('[data-reader-edit]');
   const disable = event.target.closest('[data-reader-disable]');
+  const remove = event.target.closest('[data-reader-delete]');
   if (edit) {
     const reader = readers.find(item => item.id === Number(edit.dataset.readerEdit));
     if (reader) openReaderForm(reader);
@@ -224,6 +294,12 @@ document.querySelector('#readers-list').addEventListener('click', async event =>
     const reader = readers.find(item => item.id === Number(disable.dataset.readerDisable));
     if (!reader || !window.confirm(`Disattivare il lettore “${reader.name}”? Le sue richieste HTTPS verranno rifiutate.`)) return;
     try { await api(`/api/readers/${reader.id}`, { method: 'DELETE' }); await loadReaders(); showNotice('Lettore disattivato.'); }
+    catch (error) { showNotice(error.message, 'error'); }
+  }
+  if (remove) {
+    const reader = readers.find(item => item.id === Number(remove.dataset.readerDelete));
+    if (!reader || !window.confirm(`Eliminare definitivamente il lettore “${reader.name} · #${reader.id}”? La sua credenziale verrà revocata e i log resteranno senza il collegamento al lettore. L’operazione non si può annullare.`)) return;
+    try { await api(`/api/readers/${reader.id}`, { method: 'DELETE' }); await loadReaders(); showNotice('Lettore eliminato.'); }
     catch (error) { showNotice(error.message, 'error'); }
   }
 });
@@ -311,6 +387,8 @@ document.querySelector('#empty-add').addEventListener('click', openNewUser);
 document.querySelector('#close-dialog').addEventListener('click', () => userDialog.close());
 document.querySelector('#cancel-dialog').addEventListener('click', () => userDialog.close());
 document.querySelector('#search').addEventListener('input', renderUsers);
+document.querySelector('#refresh-logs').addEventListener('click', () => loadAccessLogs({ reset: true }));
+document.querySelector('#load-more-logs').addEventListener('click', () => loadAccessLogs());
 
 userForm.addEventListener('submit', async event => {
   event.preventDefault();
@@ -413,7 +491,7 @@ document.querySelector('#schedule-form').addEventListener('submit', async event 
 });
 
 async function start() {
-await Promise.all([loadUsers(), loadGates(), loadReaders()]);
+await Promise.all([loadUsers(), loadGates(), loadReaders(), loadAccessLogs({ reset: true })]);
 renderReaders();
 }
 

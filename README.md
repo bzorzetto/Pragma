@@ -31,6 +31,7 @@ Per usare Home Assistant, configura `HOME_ASSISTANT_URL` (ad esempio `http://hom
 - creazione e modifica dei varchi, direzione, abilitazione e configurazione dell'uscita Shelly RPC o Home Assistant;
 - associazione di uno o più varchi autorizzati a ciascun utente;
 - registrazione dei lettori, assegnazione dei varchi e credenziale bearer casuale mostrata una sola volta.
+- consultazione paginata del registro degli accessi, con esito, utente, varco, lettore e motivo.
 
 Le API HTTP implementate sono:
 
@@ -56,8 +57,11 @@ Le API HTTP implementate sono:
 | `DELETE` | `/api/access-rules/:id` | Disattiva una regola |
 | `DELETE` | `/api/schedules/:id` | Elimina una fascia settimanale |
 | `GET` | `/api/gates` | Elenco varchi |
+| `GET` | `/api/access-logs` | Registro accessi paginato (`limit`, `offset`) |
 | `POST` | `/api/gates` | Crea un varco |
 | `PUT` | `/api/gates/:id` | Modifica un varco |
+| `DELETE` | `/api/gates/:id` | Elimina un varco e le sue assegnazioni |
+| `DELETE` | `/api/readers/:id` | Elimina un lettore e revoca la credenziale |
 
 ## Configurazione e limiti di questa bozza
 

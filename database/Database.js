@@ -732,6 +732,10 @@ class DatabaseManager {
         `).get(id);
     }
 
+    deleteGate(id) {
+        return this.db.prepare('DELETE FROM gates WHERE id = ?').run(id);
+    }
+
 
     createReader({ name, credentialHash }) {
 
@@ -771,6 +775,10 @@ class DatabaseManager {
     disableReader(id) {
 
         return this.db.prepare('UPDATE readers SET enabled = 0 WHERE id = ?').run(id);
+    }
+
+    deleteReader(id) {
+        return this.db.prepare('DELETE FROM readers WHERE id = ?').run(id);
     }
 
 
@@ -927,12 +935,16 @@ class DatabaseManager {
         return this.db.prepare(`
             SELECT
                 l.*,
+                t.token AS token_value,
                 u.first_name,
                 u.last_name,
                 v.plate,
                 g.name AS gate_name,
+                g.id AS gate_id,
                 r.name AS reader_name
             FROM access_logs l
+            LEFT JOIN access_tokens t
+                ON t.id = l.token_id
             LEFT JOIN users u
                 ON u.id = l.user_id
             LEFT JOIN vehicles v
@@ -941,7 +953,7 @@ class DatabaseManager {
                 ON g.id = l.gate_id
             LEFT JOIN readers r
                 ON r.id = l.reader_id
-            ORDER BY l.timestamp DESC
+            ORDER BY l.timestamp DESC, l.id DESC
             LIMIT ?
             OFFSET ?
         `).all(limit, offset);

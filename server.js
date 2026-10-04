@@ -328,6 +328,14 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/api/gates') {
         return sendJson(res, 200, db.getGates());
     }
+    if (req.method === 'GET' && url.pathname === '/api/access-logs') {
+        const limit = Number(url.searchParams.get('limit') || 50);
+        const offset = Number(url.searchParams.get('offset') || 0);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(offset) || offset < 0) {
+            throw Object.assign(new Error('Paginazione del registro non valida.'), { status: 400 });
+        }
+        return sendJson(res, 200, db.getAccessLogs({ limit, offset }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/gates') {
         const gate = parseGate(await readJson(req));
         const id = db.createGate(gate);
@@ -339,6 +347,11 @@ async function handleApi(req, res, url) {
         const gate = parseGate(await readJson(req));
         db.updateGate(id, gate);
         return sendJson(res, 200, db.getGateById(id));
+    }
+    if (req.method === 'DELETE' && segments.length === 3 && segments[1] === 'gates') {
+        const id = numericId(segments[2]);
+        const result = db.deleteGate(id);
+        return result.changes ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Varco non trovato.' });
     }
     if (req.method === 'GET' && url.pathname === '/api/readers') {
         return sendJson(res, 200, db.getReaders().map(reader => ({ ...reader, gateIds: db.getGateIdsByReader(reader.id) })));
@@ -364,7 +377,7 @@ async function handleApi(req, res, url) {
     }
     if (req.method === 'DELETE' && segments.length === 3 && segments[1] === 'readers') {
         const id = numericId(segments[2]);
-        const result = db.disableReader(id);
+        const result = db.deleteReader(id);
         return result.changes ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Lettore non trovato.' });
     }
 
