@@ -2,7 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import DatabaseManager from './database/Database.js';
 
@@ -18,6 +18,18 @@ if (fs.existsSync(environmentFile)) {
 }
 const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 3000);
+const adminUsername = process.env.PRAGMA_USERNAME;
+const adminPassword = process.env.PRAGMA_PASSWORD;
+if (!adminUsername || !adminPassword || adminPassword.length < 12) {
+    throw new Error('Configura PRAGMA_USERNAME e PRAGMA_PASSWORD (almeno 12 caratteri) nel file .env.');
+}
+const sessionCookie = 'pragma_session';
+const sessionLifetimeMs = 12 * 60 * 60 * 1000;
+const sessions = new Map();
+const loginAttempts = new Map();
+const authSalt = randomBytes(16);
+const configuredPasswordHash = scryptSync(adminPassword, authSalt, 64);
+const dummyPasswordHash = scryptSync('invalid-login-attempt', authSalt, 64);
 const db = new DatabaseManager({
     dbPath: path.join(here, 'data', 'parking.db'),
     migrationsPath: path.join(here, 'database', 'migrations')
@@ -38,6 +50,64 @@ function sendJson(res, status, data) {
         'X-Content-Type-Options': 'nosniff'
     });
     res.end(JSON.stringify(data));
+}
+
+function getSession(req) {
+    const cookies = req.headers.cookie || '';
+    const cookie = cookies.split(';').map(value => value.trim()).find(value => value.startsWith(`${sessionCookie}=`));
+    const sessionId = cookie?.slice(sessionCookie.length + 1);
+    const expiresAt = sessionId && sessions.get(sessionId);
+    if (!expiresAt) return null;
+    if (expiresAt <= Date.now()) { sessions.delete(sessionId); return null; }
+    return sessionId;
+}
+
+function sendLoginPage(res) {
+    const loginPath = path.join(here, 'public', 'login.html');
+    res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:"
+    });
+    fs.createReadStream(loginPath).pipe(res);
+}
+
+function handleAuth(req, res, url) {
+    if (req.method === 'GET' && url.pathname === '/api/auth/session') {
+        return sendJson(res, 200, { authenticated: Boolean(getSession(req)) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+        const address = req.socket.remoteAddress || 'unknown';
+        const attempts = loginAttempts.get(address) || { count: 0, resetAt: Date.now() + 15 * 60 * 1000 };
+        if (attempts.resetAt <= Date.now()) { attempts.count = 0; attempts.resetAt = Date.now() + 15 * 60 * 1000; }
+        if (attempts.count >= 10) return sendJson(res, 429, { error: 'Troppi tentativi. Riprova tra qualche minuto.' });
+        return readJson(req).then(body => {
+            const username = typeof body.username === 'string' ? body.username : '';
+            const password = typeof body.password === 'string' ? body.password : '';
+            const candidateHash = password.length <= 1024 ? scryptSync(password, authSalt, 64) : dummyPasswordHash;
+            const passwordMatches = timingSafeEqual(candidateHash, configuredPasswordHash);
+            const usernameBytes = Buffer.from(username);
+            const adminBytes = Buffer.from(adminUsername);
+            const usernameMatches = usernameBytes.length === adminBytes.length && timingSafeEqual(usernameBytes, adminBytes);
+            if (!passwordMatches || !usernameMatches) {
+                attempts.count++;
+                loginAttempts.set(address, attempts);
+                return sendJson(res, 401, { error: 'Nome utente o password non validi.' });
+            }
+            loginAttempts.delete(address);
+            const sessionId = randomBytes(32).toString('base64url');
+            sessions.set(sessionId, Date.now() + sessionLifetimeMs);
+            res.setHeader('Set-Cookie', `${sessionCookie}=${sessionId}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionLifetimeMs / 1000}`);
+            return sendJson(res, 200, { authenticated: true });
+        });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+        const sessionId = getSession(req);
+        if (sessionId) sessions.delete(sessionId);
+        res.setHeader('Set-Cookie', `${sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+        return sendJson(res, 200, { authenticated: false });
+    }
+    return false;
 }
 
 async function readJson(req) {
@@ -393,15 +463,44 @@ async function handleReaderAccess(req, res) {
 const server = http.createServer(async (req, res) => {
     try {
         const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-        if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
+        if (url.pathname.startsWith('/api/auth/')) {
+            const handled = await handleAuth(req, res, url);
+            return handled === false ? sendJson(res, 404, { error: 'Risorsa non trovata.' }) : handled;
+        }
+        if (url.pathname.startsWith('/api/')) {
+            if (!getSession(req)) return sendJson(res, 401, { error: 'Accesso richiesto.' });
+            return await handleApi(req, res, url);
+        }
+
+        if (!getSession(req)) {
+            if (url.pathname === '/login' || url.pathname === '/login.html') return sendLoginPage(res);
+            if (url.pathname === '/login.js' || url.pathname === '/styles.css') {
+                const filePath = path.join(here, 'public', path.basename(url.pathname));
+                res.writeHead(200, {
+                    'Content-Type': mimeTypes[path.extname(filePath)],
+                    'Cache-Control': 'no-store',
+                    'X-Content-Type-Options': 'nosniff',
+                    'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:"
+                });
+                return fs.createReadStream(filePath).pipe(res);
+            }
+            res.writeHead(302, { Location: '/login', 'Cache-Control': 'no-store' });
+            return res.end();
+        }
+        if (url.pathname === '/login' || url.pathname === '/login.html') {
+            res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+            return res.end();
+        }
 
         const requested = url.pathname === '/' ? '/index.html' : url.pathname;
         const publicRoot = path.resolve(here, 'public');
         const filePath = path.resolve(publicRoot, `.${decodeURIComponent(requested)}`);
         if (!filePath.startsWith(`${publicRoot}${path.sep}`)) return sendJson(res, 403, { error: 'Percorso non consentito.' });
         if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return sendJson(res, 404, { error: 'Pagina non trovata.' });
+        for (const [sessionId, expiresAt] of sessions) if (expiresAt <= Date.now()) sessions.delete(sessionId);
         res.writeHead(200, {
             'Content-Type': mimeTypes[path.extname(filePath)] || 'application/octet-stream',
+            'Cache-Control': 'no-store',
             'X-Content-Type-Options': 'nosniff',
             'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:"
         });

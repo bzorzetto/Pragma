@@ -13,6 +13,8 @@ npm start
 
 Apri [http://127.0.0.1:3000](http://127.0.0.1:3000). Il server applica automaticamente le migrazioni al database `data/parking.db` all'avvio. Per interromperlo, premi `Ctrl+C` nel terminale.
 
+Al primo avvio, copia `.env.example` in `.env` e imposta `PRAGMA_USERNAME` e `PRAGMA_PASSWORD` con credenziali personali; la password deve contenere almeno 12 caratteri. L'interfaccia e le API amministrative richiedono il login. La sessione usa un cookie HttpOnly e scade dopo 12 ore; riavviare il server invalida le sessioni attive. Dopo dieci accessi falliti dallo stesso indirizzo, i tentativi vengono temporaneamente limitati.
+
 Durante lo sviluppo puoi usare `npm run dev` per riavviare automaticamente il server quando cambiano i file.
 
 Per attivare l'API HTTPS dei lettori, copia `.env.example` in `.env` e configura certificato e chiave TLS. Il certificato deve essere attendibile dal lettore NFC e valido per l'hostname usato dal lettore. Mantieni la chiave privata fuori dal repository e leggibile solo dall'utente di sistema che esegue Pragma. Senza entrambi i file TLS l'API lettori non viene avviata; la pagina amministrativa locale continua a funzionare.
@@ -32,6 +34,9 @@ Le API HTTP implementate sono:
 
 | Metodo | Percorso | Operazione |
 | --- | --- | --- |
+| `POST` | `/api/auth/login` | Accesso amministratore |
+| `POST` | `/api/auth/logout` | Uscita |
+| `GET` | `/api/auth/session` | Verifica sessione |
 | `GET` | `/api/users` | Elenco utenti e relativi token |
 | `POST` | `/api/users` | Creazione utente |
 | `PUT` | `/api/users/:id` | Modifica utente |

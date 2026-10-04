@@ -9,15 +9,48 @@ let users = [];
 let gates = [];
 let readers = [];
 
+const navigationLinks = [...document.querySelectorAll('.sidebar .nav-item[href^="#"]')];
+
+function activateNavigation(link) {
+  navigationLinks.forEach(item => {
+    const active = item === link;
+    item.classList.toggle('active', active);
+    if (active) item.setAttribute('aria-current', 'location');
+    else item.removeAttribute('aria-current');
+  });
+}
+
+navigationLinks.forEach(link => link.addEventListener('click', event => {
+  const section = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+  if (!section) return;
+  event.preventDefault();
+  history.pushState(null, '', link.hash);
+  activateNavigation(link);
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}));
+
+window.addEventListener('popstate', () => {
+  const link = navigationLinks.find(item => item.hash === window.location.hash) || navigationLinks[0];
+  activateNavigation(link);
+});
+
+activateNavigation(navigationLinks.find(link => link.hash === window.location.hash) || navigationLinks[0]);
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }
   });
   const data = response.status === 204 ? null : await response.json();
+  if (response.status === 401) { window.location.assign('/login'); throw new Error('Sessione scaduta.'); }
   if (!response.ok) throw new Error(data?.error || `Richiesta non riuscita (${response.status}).`);
   return data;
 }
+
+document.querySelector('#logout').addEventListener('click', async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); }
+  finally { window.location.assign('/login'); }
+});
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
