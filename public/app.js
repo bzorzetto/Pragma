@@ -40,19 +40,19 @@ window.addEventListener('popstate', () => {
 activateNavigation(navigationLinks.find(link => link.hash === window.location.hash) || navigationLinks[0]);
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(new URL(path.replace(/^\/+/, ''), document.baseURI), {
     ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }
   });
   const data = response.status === 204 ? null : await response.json();
-  if (response.status === 401) { window.location.assign('/login'); throw new Error('Sessione scaduta.'); }
+  if (response.status === 401) { window.location.assign(new URL('login', document.baseURI)); throw new Error('Sessione scaduta.'); }
   if (!response.ok) throw new Error(data?.error || `Richiesta non riuscita (${response.status}).`);
   return data;
 }
 
 document.querySelector('#logout').addEventListener('click', async () => {
-  try { await fetch('/api/auth/logout', { method: 'POST' }); }
-  finally { window.location.assign('/login'); }
+  try { await fetch(new URL('api/auth/logout', document.baseURI), { method: 'POST' }); }
+  finally { window.location.assign(new URL('login', document.baseURI)); }
 });
 
 function escapeHtml(value = '') {

@@ -18,6 +18,8 @@ if (fs.existsSync(environmentFile)) {
 }
 const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 3000);
+const dataDirectory = process.env.PRAGMA_DATA_DIR || path.join(here, 'data');
+const ingressOnly = process.env.INGRESS_ONLY === 'true';
 const adminUsername = process.env.PRAGMA_USERNAME;
 const adminPassword = process.env.PRAGMA_PASSWORD;
 if (!adminUsername || !adminPassword || adminPassword.length < 12) {
@@ -46,7 +48,7 @@ const authSalt = randomBytes(16);
 const configuredPasswordHash = scryptSync(adminPassword, authSalt, 64);
 const dummyPasswordHash = scryptSync('invalid-login-attempt', authSalt, 64);
 const db = new DatabaseManager({
-    dbPath: path.join(here, 'data', 'parking.db'),
+    dbPath: path.join(dataDirectory, 'parking.db'),
     migrationsPath: path.join(here, 'database', 'migrations')
 });
 db.open();
@@ -77,14 +79,22 @@ function getSession(req) {
     return sessionId;
 }
 
-function sendLoginPage(res) {
-    const loginPath = path.join(here, 'public', 'login.html');
+function ingressPath(req) {
+    const value = req.headers['x-ingress-path'];
+    if (typeof value !== 'string' || !/^\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/?$/.test(value)) return '';
+    return value.replace(/\/+$/, '');
+}
+
+function sendHtmlFile(req, res, filePath) {
+    const base = ingressPath(req);
+    const html = fs.readFileSync(filePath, 'utf8')
+        .replace('<head>', `<head><base href="${base || ''}/">`);
     res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:"
+        'Content-Security-Policy': "default-src 'self'; base-uri 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:"
     });
-    fs.createReadStream(loginPath).pipe(res);
+    res.end(html);
 }
 
 function handleAuth(req, res, url) {
@@ -517,6 +527,9 @@ async function handleReaderAccess(req, res) {
 
 const server = http.createServer(async (req, res) => {
     try {
+        if (ingressOnly && !['172.30.32.2', '::ffff:172.30.32.2'].includes(req.socket.remoteAddress)) {
+            return sendJson(res, 403, { error: 'Accesso consentito solo tramite Home Assistant Ingress.' });
+        }
         const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
         if (url.pathname.startsWith('/api/auth/')) {
             const handled = await handleAuth(req, res, url);
@@ -528,7 +541,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (!getSession(req)) {
-            if (url.pathname === '/login' || url.pathname === '/login.html') return sendLoginPage(res);
+            if (url.pathname === '/login' || url.pathname === '/login.html') return sendHtmlFile(req, res, path.join(here, 'public', 'login.html'));
             if (url.pathname === '/login.js' || url.pathname === '/styles.css') {
                 const filePath = path.join(here, 'public', path.basename(url.pathname));
                 res.writeHead(200, {
@@ -539,11 +552,11 @@ const server = http.createServer(async (req, res) => {
                 });
                 return fs.createReadStream(filePath).pipe(res);
             }
-            res.writeHead(302, { Location: '/login', 'Cache-Control': 'no-store' });
+            res.writeHead(302, { Location: `${ingressPath(req)}/login`, 'Cache-Control': 'no-store' });
             return res.end();
         }
         if (url.pathname === '/login' || url.pathname === '/login.html') {
-            res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+            res.writeHead(302, { Location: `${ingressPath(req)}/`, 'Cache-Control': 'no-store' });
             return res.end();
         }
 
@@ -553,6 +566,7 @@ const server = http.createServer(async (req, res) => {
         if (!filePath.startsWith(`${publicRoot}${path.sep}`)) return sendJson(res, 403, { error: 'Percorso non consentito.' });
         if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return sendJson(res, 404, { error: 'Pagina non trovata.' });
         for (const [sessionId, expiresAt] of sessions) if (expiresAt <= Date.now()) sessions.delete(sessionId);
+        if (path.extname(filePath) === '.html') return sendHtmlFile(req, res, filePath);
         res.writeHead(200, {
             'Content-Type': mimeTypes[path.extname(filePath)] || 'application/octet-stream',
             'Cache-Control': 'no-store',

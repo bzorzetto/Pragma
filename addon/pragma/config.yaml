@@ -1,0 +1,37 @@
+name: Pragma
+version: "1.0.0"
+slug: pragma
+description: Gestione locale di accessi, varchi, badge NFC e registri.
+url: https://github.com/bzorzetto/Pragma
+image: ghcr.io/bzorzetto/pragma-addon
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 3000
+ingress_stream: false
+panel_icon: mdi:gate
+panel_title: Pragma
+homeassistant_api: true
+map:
+  - type: ssl
+    read_only: true
+ports:
+  3443/tcp: 3443
+ports_description:
+  3443/tcp: API HTTPS dei lettori NFC
+options:
+  username: admin
+  password: null
+  reader_api_enabled: false
+  tls_cert_file: /ssl/fullchain.pem
+  tls_key_file: /ssl/privkey.pem
+schema:
+  username: str(1,64)
+  password: password
+  reader_api_enabled: bool
+  tls_cert_file: str?
+  tls_key_file: str?

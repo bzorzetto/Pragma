@@ -2,6 +2,12 @@
 
 Sistema locale di controllo accessi basato su Node.js e SQLite.
 
+## Add-on Home Assistant
+
+Il repository include un add-on Home Assistant con interfaccia via Ingress e database persistente. Per installarlo, aggiungi `https://github.com/bzorzetto/Pragma` come repository nello Store dei componenti aggiuntivi, installa Pragma e configura una password amministratore di almeno 12 caratteri. La documentazione completa è in [addon/pragma/DOCS.md](addon/pragma/DOCS.md).
+
+L'add-on usa il token temporaneo di Supervisor per invocare i servizi di Home Assistant. L'API HTTPS dei lettori NFC è opzionale e richiede un certificato TLS nella cartella `/ssl` e la porta 3443 raggiungibile dai lettori.
+
 ## Avvio dell'interfaccia
 
 Richiede una versione recente di Node.js. Dalla cartella del progetto:
