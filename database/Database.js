@@ -929,7 +929,11 @@ class DatabaseManager {
 
     getAccessLogs({
         limit = 100,
-        offset = 0
+        offset = 0,
+        name = '',
+        dateFrom = null,
+        dateUntil = null,
+        gateId = null
     } = {}) {
 
         return this.db.prepare(`
@@ -953,10 +957,25 @@ class DatabaseManager {
                 ON g.id = l.gate_id
             LEFT JOIN readers r
                 ON r.id = l.reader_id
+            WHERE (@name = '' OR
+                u.first_name LIKE @namePattern OR
+                u.last_name LIKE @namePattern OR
+                (u.first_name || ' ' || u.last_name) LIKE @namePattern)
+                AND (@dateFrom IS NULL OR l.timestamp >= @dateFrom)
+                AND (@dateUntil IS NULL OR l.timestamp < @dateUntil)
+                AND (@gateId IS NULL OR l.gate_id = @gateId)
             ORDER BY l.timestamp DESC, l.id DESC
-            LIMIT ?
-            OFFSET ?
-        `).all(limit, offset);
+            LIMIT @limit
+            OFFSET @offset
+        `).all({
+            name,
+            namePattern: `%${name}%`,
+            dateFrom,
+            dateUntil,
+            gateId,
+            limit,
+            offset
+        });
     }
 
 

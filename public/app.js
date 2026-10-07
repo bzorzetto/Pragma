@@ -11,6 +11,8 @@ let readers = [];
 const accessLogPageSize = 50;
 let accessLogOffset = 0;
 let accessLogsExhausted = false;
+let accessLogRequestVersion = 0;
+let logFilterTimer = null;
 
 const navigationLinks = [...document.querySelectorAll('.sidebar .nav-item[href^="#"]')];
 
@@ -76,7 +78,7 @@ const accessLogReasons = {
 function renderAccessLogs(logs, append = false) {
   const body = document.querySelector('#access-logs-body');
   if (!logs.length && !append && accessLogOffset === 0) {
-    body.innerHTML = '<tr><td colspan="7" class="empty">Nessun accesso registrato.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nessun evento corrisponde ai filtri selezionati.</td></tr>';
     return;
   }
   const rows = logs.map(log => {
@@ -98,22 +100,40 @@ async function loadAccessLogs({ reset = false } = {}) {
   const status = document.querySelector('#logs-status');
   const loadMore = document.querySelector('#load-more-logs');
   if (reset) { accessLogOffset = 0; accessLogsExhausted = false; }
+  const requestVersion = ++accessLogRequestVersion;
+  const parameters = new URLSearchParams({ limit: String(accessLogPageSize), offset: String(accessLogOffset) });
+  const name = document.querySelector('#log-name-filter').value.trim();
+  const dateFrom = document.querySelector('#log-date-from').value;
+  const dateTo = document.querySelector('#log-date-to').value;
+  const gateId = document.querySelector('#log-gate-filter').value;
+  if (name) parameters.set('name', name);
+  if (dateFrom) parameters.set('dateFrom', localDateBoundary(dateFrom));
+  if (dateTo) parameters.set('dateUntil', localDateBoundary(dateTo, 1));
+  if (gateId) parameters.set('gateId', gateId);
   status.textContent = 'Caricamento…';
   loadMore.disabled = true;
   try {
-    const logs = await api(`/api/access-logs?limit=${accessLogPageSize}&offset=${accessLogOffset}`);
+    const logs = await api(`/api/access-logs?${parameters}`);
+    if (requestVersion !== accessLogRequestVersion) return;
     renderAccessLogs(logs, accessLogOffset > 0);
     accessLogOffset += logs.length;
     accessLogsExhausted = logs.length < accessLogPageSize;
     status.textContent = accessLogOffset ? `${accessLogOffset} eventi visualizzati` : 'Nessun evento da visualizzare';
     loadMore.hidden = accessLogsExhausted;
   } catch (error) {
+    if (requestVersion !== accessLogRequestVersion) return;
     status.textContent = `Impossibile caricare il registro: ${error.message}`;
     if (accessLogOffset === 0) document.querySelector('#access-logs-body').innerHTML = '';
     loadMore.hidden = true;
   } finally {
-    loadMore.disabled = false;
+    if (requestVersion === accessLogRequestVersion) loadMore.disabled = false;
   }
+}
+
+function localDateBoundary(value, dayOffset = 0) {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day + dayOffset);
+  return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 function showNotice(message, type = 'success') {
@@ -126,10 +146,17 @@ function showNotice(message, type = 'success') {
 
 function renderUsers() {
   const query = document.querySelector('#search').value.trim().toLocaleLowerCase('it');
-  const filtered = users.filter(user => `${user.first_name} ${user.last_name} ${user.company || ''} ${user.email || ''}`.toLocaleLowerCase('it').includes(query));
+  const filtered = users.filter(user => [
+    user.first_name, user.last_name, user.company, user.email, user.phone,
+    ...user.tokens.flatMap(token => [token.token, token.description])
+  ].filter(Boolean).join(' ').toLocaleLowerCase('it').includes(query));
   document.querySelector('#user-count').textContent = users.length;
   document.querySelector('#token-count').textContent = users.reduce((count, user) => count + user.tokens.filter(token => token.enabled).length, 0);
-  document.querySelector('#empty-state').hidden = filtered.length !== 0;
+  const emptyState = document.querySelector('#empty-state');
+  emptyState.hidden = filtered.length !== 0;
+  emptyState.querySelector('strong').textContent = query ? 'Nessun utente corrispondente' : 'Nessun utente registrato';
+  emptyState.querySelector('p').textContent = query ? 'Prova a modificare i termini di ricerca.' : 'Aggiungi un utente per iniziare a configurare gli accessi.';
+  document.querySelector('#empty-add').hidden = Boolean(query);
   usersBody.hidden = filtered.length === 0;
   usersBody.innerHTML = filtered.map(user => {
     const initials = `${user.first_name[0] || ''}${user.last_name[0] || ''}`.toLocaleUpperCase('it');
@@ -156,6 +183,9 @@ async function loadGates() {
   try {
     gates = await api('/api/gates');
     document.querySelector('#gate-count').textContent = gates.length;
+    const gateFilter = document.querySelector('#log-gate-filter');
+    gateFilter.replaceChildren(new Option('Tutti i varchi', ''));
+    gates.forEach(gate => gateFilter.add(new Option(`${gate.name} · #${gate.id}`, String(gate.id))));
     container.innerHTML = gates.length ? gates.map(gate => `<article class="gate-card"><span class="gate-symbol">⇄</span><div class="gate-info"><div class="gate-name">${escapeHtml(gate.name)} · #${gate.id}</div><div class="gate-direction">${escapeHtml(({ ENTRY: 'Ingresso', EXIT: 'Uscita', BOTH: 'Entrata e uscita' })[gate.direction] || gate.direction)} · ${gate.enabled ? 'Abilitato' : 'Disabilitato'}</div><div class="gate-relay">${gate.ha_service ? `Home Assistant · ${escapeHtml(gate.ha_service)} · ${escapeHtml(gate.ha_entity_id || '')}` : gate.relay_type === 'SHELLY_RPC' ? `Shelly · ${escapeHtml(gate.relay_host || 'host mancante')} · uscita ${gate.relay_channel} · impulso ${gate.pulse_ms} ms` : 'Nessun dispositivo di uscita'}</div></div><button class="text-button" data-gate-edit="${gate.id}">Modifica</button><button class="text-button danger" data-gate-delete="${gate.id}">Elimina</button></article>`).join('') : '<span class="muted">Nessun varco configurato.</span>';
     container.dataset.gates = JSON.stringify(gates);
   } catch { document.querySelector('#gate-count').textContent = '—'; container.innerHTML = '<span class="muted">Impossibile caricare i varchi.</span>'; }
@@ -389,6 +419,21 @@ document.querySelector('#cancel-dialog').addEventListener('click', () => userDia
 document.querySelector('#search').addEventListener('input', renderUsers);
 document.querySelector('#refresh-logs').addEventListener('click', () => loadAccessLogs({ reset: true }));
 document.querySelector('#load-more-logs').addEventListener('click', () => loadAccessLogs());
+document.querySelector('#log-name-filter').addEventListener('input', () => {
+  window.clearTimeout(logFilterTimer);
+  logFilterTimer = window.setTimeout(() => loadAccessLogs({ reset: true }), 250);
+});
+for (const filterId of ['log-date-from', 'log-date-to', 'log-gate-filter']) {
+  document.querySelector(`#${filterId}`).addEventListener('change', () => loadAccessLogs({ reset: true }));
+}
+document.querySelector('#clear-log-filters').addEventListener('click', () => {
+  window.clearTimeout(logFilterTimer);
+  document.querySelector('#log-name-filter').value = '';
+  document.querySelector('#log-date-from').value = '';
+  document.querySelector('#log-date-to').value = '';
+  document.querySelector('#log-gate-filter').value = '';
+  loadAccessLogs({ reset: true });
+});
 
 userForm.addEventListener('submit', async event => {
   event.preventDefault();

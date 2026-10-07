@@ -63,11 +63,13 @@ Le API HTTP implementate sono:
 | `DELETE` | `/api/access-rules/:id` | Disattiva una regola |
 | `DELETE` | `/api/schedules/:id` | Elimina una fascia settimanale |
 | `GET` | `/api/gates` | Elenco varchi |
-| `GET` | `/api/access-logs` | Registro accessi paginato (`limit`, `offset`) |
+| `GET` | `/api/access-logs` | Registro accessi paginato e filtrabile (`limit`, `offset`, `name`, `dateFrom`, `dateUntil`, `gateId`) |
 | `POST` | `/api/gates` | Crea un varco |
 | `PUT` | `/api/gates/:id` | Modifica un varco |
 | `DELETE` | `/api/gates/:id` | Elimina un varco e le sue assegnazioni |
 | `DELETE` | `/api/readers/:id` | Elimina un lettore e revoca la credenziale |
+
+Per `/api/access-logs`, `name` cerca nome o cognome; `dateFrom` e `dateUntil` delimitano un intervallo in UTC nel formato `AAAA-MM-GG HH:MM:SS` (`dateUntil` è esclusivo); `gateId` seleziona un varco. I filtri si possono combinare.
 
 ## Configurazione e limiti di questa bozza
 

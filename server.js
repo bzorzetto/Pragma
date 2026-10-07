@@ -341,10 +341,28 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/api/access-logs') {
         const limit = Number(url.searchParams.get('limit') || 50);
         const offset = Number(url.searchParams.get('offset') || 0);
+        const name = (url.searchParams.get('name') || '').trim();
+        const dateFrom = url.searchParams.get('dateFrom') || null;
+        const dateUntil = url.searchParams.get('dateUntil') || null;
+        const gateValue = url.searchParams.get('gateId');
+        const gateId = gateValue ? Number(gateValue) : null;
         if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(offset) || offset < 0) {
             throw Object.assign(new Error('Paginazione del registro non valida.'), { status: 400 });
         }
-        return sendJson(res, 200, db.getAccessLogs({ limit, offset }));
+        if (name.length > 200) throw Object.assign(new Error('Il nome da cercare è troppo lungo.'), { status: 400 });
+        const validTimestamp = value => {
+            if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value || '')) return false;
+            const parsed = new Date(`${value.replace(' ', 'T')}Z`);
+            return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 19).replace('T', ' ') === value;
+        };
+        if ((dateFrom && !validTimestamp(dateFrom)) || (dateUntil && !validTimestamp(dateUntil)) ||
+            (dateFrom && dateUntil && dateFrom >= dateUntil)) {
+            throw Object.assign(new Error('Intervallo di date non valido.'), { status: 400 });
+        }
+        if (gateId !== null && (!Number.isSafeInteger(gateId) || gateId < 1)) {
+            throw Object.assign(new Error('Varco non valido.'), { status: 400 });
+        }
+        return sendJson(res, 200, db.getAccessLogs({ limit, offset, name, dateFrom, dateUntil, gateId }));
     }
     if (req.method === 'POST' && url.pathname === '/api/gates') {
         const gate = parseGate(await readJson(req));
