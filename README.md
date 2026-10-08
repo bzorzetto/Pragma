@@ -8,6 +8,8 @@ Il repository include un add-on Home Assistant con interfaccia via Ingress e dat
 
 L'add-on usa il token temporaneo di Supervisor per invocare i servizi di Home Assistant. L'API HTTPS dei lettori NFC è opzionale e richiede un certificato TLS nella cartella `/ssl` e la porta 3443 raggiungibile dai lettori.
 
+Per ogni richiesta di accesso valutata da un lettore autenticato, Pragma genera in Home Assistant l'evento `pragma_access` con esito, motivo, lettore, varco e, se identificato, utente. Il codice NFC non è incluso. Puoi usarlo come trigger di un'automazione per notifiche o altre azioni; esempi e campi disponibili sono descritti in [addon/pragma/DOCS.md](addon/pragma/DOCS.md).
+
 ## Avvio dell'interfaccia
 
 Richiede una versione recente di Node.js. Dalla cartella del progetto:

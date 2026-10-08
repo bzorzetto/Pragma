@@ -472,6 +472,39 @@ async function activateGateRelay(gate) {
     return response.ok && !reply?.error;
 }
 
+function emitHomeAssistantAccessEvent({ result, reason, reader, gate, token, direction }) {
+    if (!homeAssistantBaseUrl || !homeAssistantToken) return;
+
+    const user = token ? db.getUserById(token.user_id) : null;
+    const eventData = {
+        timestamp: new Date().toISOString(),
+        result,
+        reason,
+        reader_id: reader.id,
+        reader_name: db.getReaderById(reader.id)?.name ?? null,
+        gate_id: gate?.id ?? null,
+        gate_name: gate?.name ?? null,
+        direction: direction ?? null,
+        user_id: user?.id ?? null,
+        first_name: user?.first_name ?? null,
+        last_name: user?.last_name ?? null
+    };
+
+    void fetch(`${homeAssistantBaseUrl}/api/events/pragma_access`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${homeAssistantToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(eventData),
+        signal: AbortSignal.timeout(3000)
+    }).then(response => {
+        if (!response.ok) throw new Error(`Home Assistant ha risposto ${response.status}`);
+    }).catch(error => {
+        console.error('Impossibile inviare l’evento di accesso a Home Assistant:', error.message);
+    });
+}
+
 async function handleReaderAccess(req, res) {
     if (req.method !== 'POST' || req.url.split('?')[0] !== '/api/reader/access') {
         return sendJson(res, 404, { error: 'Endpoint non trovato.' });
@@ -497,6 +530,7 @@ async function handleReaderAccess(req, res) {
             reason,
             direction
         });
+        emitHomeAssistantAccessEvent({ result: 'DENIED', reason, reader, gate, token, direction });
         return sendJson(res, 200, { result: 'nok', reason });
     };
 
@@ -540,6 +574,7 @@ async function handleReaderAccess(req, res) {
         reason: 'OPENED',
         direction
     });
+    emitHomeAssistantAccessEvent({ result: 'GRANTED', reason: 'OPENED', reader, gate, token, direction });
     return sendJson(res, 200, { result: 'ok' });
 }
 

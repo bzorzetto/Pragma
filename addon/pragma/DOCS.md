@@ -24,6 +24,45 @@ Per abilitare l'API lettori, copia un certificato TLS e la relativa chiave priva
 
 L'add-on usa il token API temporaneo fornito da Supervisor per invocare servizi di Home Assistant. Il token non viene salvato nel database né mostrato nella configurazione. Nel varco seleziona Home Assistant e il servizio da richiamare. Sono supportati `switch.turn_on`, `automation.turn_on` e `automation.trigger`.
 
+### Eventi di accesso in Home Assistant
+
+Per ogni richiesta di accesso valida arrivata da un lettore autenticato, Pragma genera l'evento Home Assistant `pragma_access`, sia quando l'accesso è concesso sia quando è negato. I dati dell'evento sono:
+
+| Campo | Contenuto |
+| --- | --- |
+| `timestamp` | Data e ora UTC in formato ISO 8601 |
+| `result` | `GRANTED` oppure `DENIED` |
+| `reason` | `OPENED` per un accesso concesso, altrimenti il codice del motivo del rifiuto |
+| `reader_id`, `reader_name` | ID e nome del lettore autenticato |
+| `gate_id`, `gate_name` | ID e nome del varco, se identificato |
+| `direction` | `ENTRY`, `EXIT` o `null` |
+| `user_id`, `first_name`, `last_name` | Dati dell'utente, se il badge è stato identificato |
+
+Il codice NFC grezzo non viene incluso. Le richieste senza credenziali valide non generano un evento. L'invio dell'evento avviene in background e non modifica l'esito della decisione di accesso.
+
+Esempio di automazione che crea una notifica persistente per gli accessi negati:
+
+```yaml
+automation:
+  - alias: "Notifica accesso Pragma negato"
+    triggers:
+      - trigger: event
+        event_type: pragma_access
+        event_data:
+          result: DENIED
+    actions:
+      - action: persistent_notification.create
+        data:
+          title: "Accesso Pragma negato"
+          message: >-
+            {{ trigger.event.data.first_name or 'Utente sconosciuto' }}
+            {{ trigger.event.data.last_name or '' }} —
+            {{ trigger.event.data.gate_name or 'varco non identificato' }}:
+            {{ trigger.event.data.reason }}
+```
+
+Per inviare un'e-mail, sostituisci l'azione di notifica con il servizio `notify` configurato nella tua istanza di Home Assistant. È possibile filtrare l'automazione anche per `gate_id`, `reader_id`, `reason` o `direction` tramite `event_data`.
+
 Per usare Shelly, il dispositivo deve essere raggiungibile dalla rete interna di Home Assistant. Il fuso orario dell'add-on segue quello di Home Assistant per la valutazione delle fasce orarie.
 
 ## Dati e aggiornamenti
