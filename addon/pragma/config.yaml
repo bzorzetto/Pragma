@@ -1,5 +1,5 @@
 name: Pragma
-version: "1.0.1"
+version: "1.0.2"
 slug: pragma
 description: Gestione locale di accessi, varchi, badge NFC e registri.
 url: https://github.com/bzorzetto/Pragma
